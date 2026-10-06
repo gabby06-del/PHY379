@@ -1,0 +1,62 @@
+import os
+import h5py
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Prevents Mac GUI freeze crashes
+import matplotlib.pyplot as plt
+
+file_path = "/Users/alfredthebuttler/Desktop/PHY379/MRI/dinv_dataset0.h5"
+output_image_name = "mri_slices_preview.png"
+
+if not os.path.exists(file_path):
+    print(f"Error: Could not find {file_path}. Make sure your generation script ran completely.")
+    exit()
+
+with h5py.File(file_path, 'r') as f:
+    print("Keys found in dataset:", list(f.keys()))
+    
+    # Dynamically find keys to plot (prefer x and y)
+    keys_to_plot = [k for k in ['x', 'y'] if k in f]
+    if not keys_to_plot:
+        keys_to_plot = list(f.keys())[:2] # fallback to first two keys
+        
+    num_plots = len(keys_to_plot)
+    fig, axes = plt.subplots(1, num_plots, figsize=(5 * num_plots, 5))
+    
+    # Handle single key vs multiple keys formatting for subplot axes
+    if num_plots == 1:
+        axes = [axes]
+        
+    for i, key in enumerate(keys_to_plot):
+        # Extract the very first sample slice index [0, ...]
+        slice_data = f[key][0]
+        
+        print(f"Processing '{key}' slice. Loaded shape: {slice_data.shape}")
+        
+        # MRI datasets often have extra channels: (Channels, Height, Width) or (H, W, Complex)
+        # Squeeze out single dimensions or grab the first channel if multidimensional
+        if slice_data.ndim == 3:
+            if slice_data.shape[0] in [1, 2, 3]: # Channel first notation (C, H, W)
+                slice_data = slice_data[0] # Grab first channel/phase
+            elif slice_data.shape[-1] in [2]: # Complex pairs (H, W, 2)
+                # Compute absolute magnitude of complex real/imaginary values
+                slice_data = np.sqrt(slice_data[..., 0]**2 + slice_data[..., 1]**2)
+            else:
+                slice_data = slice_data[:, :, 0] # Fallback slice
+        elif slice_data.ndim > 3:
+            # Flatten down extreme dimensions if nested deeper
+            slice_data = np.squeeze(slice_data)
+            while slice_data.ndim > 2:
+                slice_data = slice_data[0]
+
+        # Draw the 2D MRI slice matrix
+        im = axes[i].imshow(slice_data, cmap='gray')
+        axes[i].set_title(f"Dataset Key: '{key}' (Index 0)")
+        plt.imshow(np.log(1 + np.abs(slice_data)), cmap='gray')
+
+        axes[i].axis('off')
+        fig.colorbar(im, ax=axes[i], fraction=0.046, pad=0.04)
+
+    plt.tight_layout()
+    plt.savefig(output_image_name, dpi=150)
+    print(f"\nSuccess! Slices visualized and saved to disk as: '{output_image_name}'")
