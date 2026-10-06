@@ -8,7 +8,9 @@ Throughout the year I will be updating this repo with self written code, written
 
 | Date | Work done | Output and next steps |
 | :---:         |     :----:      |          :---: |
-| Oct 6   | created git repository and did my first commits   | I debugged and utilized code from the ICLR 2025 paper "UNSURE: Unknown Noise level Stein's Unbiased Risk Estimator" by Julian Tachella, Mike Davies and Laurent Jacques. From this I was able to create images using SURE for MRI images. I was able to learn a lot about the structure and expected output of my code. Following this I will code a project to better understand how SURE and GSURE works in application to images outside of MRI's to later then apply to medical imaging.   |
+| Oct 6   | created git repository and did my first commits   | I debugged and utilized code from the ICLR 2025 paper "UNSURE: Unknown Noise level Stein's Unbiased Risk Estimator" by Julian Tachella, Mike Davies and Laurent Jacques. From this I was able to create images using SURE for MRI images. I was able to learn a lot about the structure and expected output of my code. Following this I will code a project to better understand how SURE and GSURE works in application to images outside of MRI's to later then apply to medical imaging.  
+**Output Images from Debugged Code** : <img width="594" height="200" alt="Screenshot 2026-10-06 at 12 13 45 PM" src="https://github.com/user-attachments/assets/78c32a04-f64f-48c4-84f2-dd0c5584b1d3" />
+|
 | |      |   |
 
 ## Citations 
