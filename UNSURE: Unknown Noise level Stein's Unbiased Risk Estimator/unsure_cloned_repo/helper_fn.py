@@ -29,6 +29,7 @@ def get_unrolled(channels, norm, device, algo='PGD', scales=3, weight_tied=True,
 
 def get_problem(problem, generate_dataset=False):
     # REPLACE device = dinv.utils.get_freer_gpu() WITH:
+# used cpu instead of gpu, i set num workers to 0 to avoid multi layer processing
     if torch.backends.mps.is_available():
         device = torch.device("mps")
     elif torch.cuda.is_available():
@@ -44,6 +45,7 @@ def get_problem(problem, generate_dataset=False):
         train_dataset_name = "fastmri_knee_singlecoil"
         #this isnt called throughout the code
         img_size = 128
+        
         path = './MRI/'
         norm = 1
 
