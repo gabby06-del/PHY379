@@ -254,3 +254,4 @@ class CorrelatedGaussianNoise(torch.nn.Module):
         """
         if sigma is not None:
             self.sigma = sigma
+# is this backpropagation of the helper function since there is forward then an update

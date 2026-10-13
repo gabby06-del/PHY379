@@ -1,0 +1,98 @@
+import numpy as np 
+import matplotlib.pyplot as plt
+
+# Generating wavefrom with random jumps to act as noise
+
+np.random.seed(1000)
+N = 10000
+time = np.linspace (0, 1, N)
+#creating our X and Y values
+X_nonoise= np.sin(2*np.pi *time) + np.sign(time-0.5) #using signoitd function and making a basic wave 
+sig = 0.1 #std sigma 
+noise = np.random.normal(0, sig, N)
+y_observed = X_nonoise + noise
+
+#now creating our soft threshold MSE and SURE 
+
+def softthresh(y_observed, tau):
+    return np.sign(y_observed) * np.maximum(np.abs(y_observed) - tau, 0)
+
+def sure (y_observed, tau, sig):
+    N = len(y_observed)
+    fy = softthresh(y_observed, tau)
+
+    MSE = np.sum((fy - y_observed)**2)
+
+    divergence = np.sum (np.abs(y_observed) > tau)
+    sure_val = MSE - N *sig**2 + 2*(sig **2) * divergence
+    return sure_val
+
+tau_grid = np.linspace(0.0, np.max(np.abs(y_observed)), 1000)
+sure_loss=[]
+MSE_loss=[]
+
+for tau in tau_grid:
+    val_sure = sure(y_observed, tau, sig)
+    sure_loss.append(val_sure)
+
+    fy = softthresh(y_observed, tau)
+    current_mse = np.mean((fy - X_nonoise)**2)
+    MSE_loss.append(current_mse)
+
+sure_loss = np.array(sure_loss)
+MSE_loss = np.array(MSE_loss)
+
+best_tau_sure = tau_grid[np.argmin(sure_loss)]
+best_tau_MSE = tau_grid[np.argmin(MSE_loss)]
+
+print("Optimal Tau: SURE:", best_tau_sure)
+print("Optimal Tau: MES:", best_tau_MSE)
+
+x_denoised = softthresh(y_observed, best_tau_sure)
+
+import matplotlib.pyplot as plt
+
+# --- First Figure (SURE & Signal Reconstruction) ---
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+
+# Left plot: SURE vs True MSE
+ax1.plot(tau_grid, sure_loss, label='SURE Loss (Unsupervised)', color='blue', lw=2)
+ax1.plot(tau_grid, MSE_loss, label='True MSE Loss', color='orange', linestyle='--', lw=2)
+ax1.axvline(best_tau_sure, color='blue', alpha=0.5, linestyle=':', label=f'SURE Optimal ({best_tau_sure:.2f})')
+ax1.set_title("SURE Curve and Ground Truth MSE") # Fixed missing space
+ax1.set_xlabel("Threshold (Tau)")
+ax1.set_ylabel("Loss Risk")
+ax1.legend()
+ax1.grid(True, alpha=0.3)
+
+
+ax2.plot(time, y_observed, label='Noisy Signal', color='purple', alpha=0.4)
+ax2.plot(time, x_denoised, label='SURE Denoised Output', color='pink', lw=2)
+ax2.set_title("Resulting Signal Reconstruction")
+ax2.set_xlabel("Time")
+ax2.legend()
+ax2.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig('reconstruction_plot.png') 
+plt.show()
+
+
+fig = plt.subplots(1, figsize=(15, 8)) 
+
+plt.plot(time, X_nonoise, label='Ground Truth', color='black', lw=1.5) 
+plt.suptitle("Resulting Signal Reconstruction")
+plt.xlabel("Time")
+plt.legend()
+plt.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig('groundtruth_plot.png') 
+plt.show()
+
+
+
+   
+
+
+
