@@ -12,7 +12,7 @@ sig = 0.1 #std sigma
 noise = np.random.normal(0, sig, N)
 y_observed = X_nonoise + noise
 
-#now creating our soft threshold MSE and SURE 
+#now creating our soft threshold function and using the math behind MSE and SURE 
 
 def softthresh(y_observed, tau):
     return np.sign(y_observed) * np.maximum(np.abs(y_observed) - tau, 0)
@@ -52,14 +52,13 @@ x_denoised = softthresh(y_observed, best_tau_sure)
 
 import matplotlib.pyplot as plt
 
-# --- First Figure (SURE & Signal Reconstruction) ---
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
 # Left plot: SURE vs True MSE
 ax1.plot(tau_grid, sure_loss, label='SURE Loss (Unsupervised)', color='blue', lw=2)
 ax1.plot(tau_grid, MSE_loss, label='True MSE Loss', color='orange', linestyle='--', lw=2)
 ax1.axvline(best_tau_sure, color='blue', alpha=0.5, linestyle=':', label=f'SURE Optimal ({best_tau_sure:.2f})')
-ax1.set_title("SURE Curve and Ground Truth MSE") # Fixed missing space
+ax1.set_title("SURE Curve and Ground Truth MSE") 
 ax1.set_xlabel("Threshold (Tau)")
 ax1.set_ylabel("Loss Risk")
 ax1.legend()
