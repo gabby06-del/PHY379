@@ -8,7 +8,7 @@ N = 10000
 time = np.linspace (0, 1, N)
 #creating our X and Y values
 X_nonoise= np.sin(2*np.pi *time) + np.sign(time-0.5) #using signoitd function and making a basic wave 
-sig = 0.1 #std sigma 
+sig = 0.5 #std sigma 
 noise = np.random.normal(0, sig, N)
 y_observed = X_nonoise + noise
 
@@ -17,41 +17,42 @@ y_observed = X_nonoise + noise
 def softthresh(y_observed, tau):
     return np.sign(y_observed) * np.maximum(np.abs(y_observed) - tau, 0)
 
-def sure (y_observed, tau, sig):
+def sure(y_observed, tau, sig):
     N = len(y_observed)
     fy = softthresh(y_observed, tau)
-
-    MSE = np.sum((fy - y_observed)**2)
-
-    divergence = np.sum (np.abs(y_observed) > tau)
-    sure_val = MSE - N *sig**2 + 2*(sig **2) * divergence
+    
+    divergence = np.sum(np.abs(y_observed) > tau)
+    
+    MSE_to_observed = np.mean((fy - y_observed)**2)
+    sure_val = MSE_to_observed - sig**2 + 2 * (sig**2) * divergence / N
+    
     return sure_val
 
-tau_grid = np.linspace(0.0, np.max(np.abs(y_observed)), 1000)
-sure_loss=[]
-MSE_loss=[]
 
-for tau in tau_grid:
-    val_sure = sure(y_observed, tau, sig)
-    sure_loss.append(val_sure)
+tau_grid = np.linspace(0.0, np.max(np.abs(y_observed)), 1000) 
+sure_loss = [] 
+MSE_loss = []  
 
-    fy = softthresh(y_observed, tau)
-    current_mse = np.mean((fy - X_nonoise)**2)
-    MSE_loss.append(current_mse)
+for tau in tau_grid:     
+    val_sure = sure(y_observed, tau, sig)     
+    sure_loss.append(val_sure)      
+    
+    fy = softthresh(y_observed, tau)     
+    current_mse = np.mean((fy - X_nonoise)**2)     
+    MSE_loss.append(current_mse)  
 
-sure_loss = np.array(sure_loss)
-MSE_loss = np.array(MSE_loss)
+sure_loss = np.array(sure_loss) 
+MSE_loss = np.array(MSE_loss)  
 
-best_tau_sure = tau_grid[np.argmin(sure_loss)]
-best_tau_MSE = tau_grid[np.argmin(MSE_loss)]
+best_tau_sure = tau_grid[np.argmin(sure_loss)] 
+best_tau_MSE = tau_grid[np.argmin(MSE_loss)]  
 
-print("Optimal Tau: SURE:", best_tau_sure)
-print("Optimal Tau: MES:", best_tau_MSE)
+print("Optimal Tau (SURE):", best_tau_sure) 
+print("Optimal Tau (MSE): ", best_tau_MSE)  
 
-x_denoised = softthresh(y_observed, best_tau_sure)
+x_denoised = softthresh(y_observed, best_tau_sure)  
 
-import matplotlib.pyplot as plt
-
+#plotting the SURE vs MSE and also the original signal with no noise
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
 # Left plot: SURE vs True MSE
