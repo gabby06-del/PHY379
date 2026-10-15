@@ -1,14 +1,13 @@
 import numpy as np 
 import matplotlib.pyplot as plt
 
-# Generating wavefrom with random jumps to act as noise
-
+#The jump is a deterministic sign function, and the noise is the Gaussian part
 np.random.seed(1000)
-N = 10000
+N = 500
 time = np.linspace (0, 1, N)
 #creating our X and Y values
 X_nonoise= np.sin(2*np.pi *time) + np.sign(time-0.5) #using signoitd function and making a basic wave 
-sig = 0.5 #std sigma 
+sig = 0.1 #std sigma 
 noise = np.random.normal(0, sig, N)
 y_observed = X_nonoise + noise
 
