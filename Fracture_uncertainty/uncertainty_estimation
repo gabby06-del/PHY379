@@ -36,8 +36,6 @@ def main():
     train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=2)
     valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False, num_workers=2)
 
-    x, y = next(iter(train_dataloader))
-    print(x.shape, y[:8]) 
 if __name__ == '__main__':
     main()
  
