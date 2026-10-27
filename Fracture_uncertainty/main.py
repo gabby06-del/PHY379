@@ -20,7 +20,6 @@ transform = transforms.Compose([
 train_dataset = datasets.ImageFolder(os.path.join(root, 'Train '), transform=transform)
 valid_dataset = datasets.ImageFolder(os.path.join(root, 'Valid'), transform=transform)
 num_classes = len(train_dataset.classes)
-
 if torch.cuda.is_available():
     device = torch.device('cuda')
 elif torch.backends.mps.is_available():
@@ -33,6 +32,7 @@ def main():
     print(valid_dataset.class_to_idx)  
     print(len(train_dataset), len(valid_dataset), 'device:', device)
 
+    
 
     train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=2)
     valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False, num_workers=2)
@@ -106,6 +106,7 @@ def main():
         train_acc_list.append(train_accuracy)
         valid_loss_list.append(valid_loss)
         valid_acc_list.append(valid_accuracy)
+        torch.save(model.state_dict(), 'resnet18_fracture.pt')
 if __name__ == '__main__':
     main()
  

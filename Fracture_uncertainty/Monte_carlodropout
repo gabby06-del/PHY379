@@ -1,0 +1,95 @@
+import os
+import numpy as np
+import torch
+import torch.nn as nn
+from torchvision import models, datasets, transforms
+from torch.utils.data import DataLoader
+from sklearn.metrics import roc_auc_score
+import matplotlib.pyplot as plt
+if torch.cuda.is_available():
+    device = torch.device('cuda')
+elif torch.backends.mps.is_available():
+    device = torch.device('mps')
+else:
+    device = torch.device('cpu')
+
+root = '/Users/alfredthebuttler/Desktop/PHY379/Fracture_uncertainty/Bone fracture dataset/Dataset'
+weights_path = '/Users/alfredthebuttler/Desktop/PHY379/Fracture_uncertainty/resnet18_fracture.pt'
+
+transform = transforms.Compose([
+    transforms.Grayscale(num_output_channels=3),
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),   # must match training
+])
+valid_dataset = datasets.ImageFolder(os.path.join(root, 'Valid'), transform=transform)
+
+
+def monte_carlo_dropout(dataloader, num_samples, device):
+    model = models.resnet18(weights=None)
+    model.fc = nn.Sequential(nn.Dropout(0.5), nn.Linear(model.fc.in_features, 2))
+    model.load_state_dict(torch.load(weights_path, map_location=device))
+    model = model.to(device)
+
+    model.eval()
+    for m in model.modules():
+        if isinstance(m, nn.Dropout):
+            m.train()
+
+    backbone = nn.Sequential(*list(model.children())[:-1])
+    head = model.fc
+
+    all_probs, all_labels = [], []
+    with torch.no_grad():
+        for images, labels in dataloader:
+            feats = torch.flatten(backbone(images.to(device)), 1)
+            probs = torch.stack([head(feats).softmax(dim=-1) for _ in range(num_samples)])
+            all_probs.append(probs.cpu().numpy())
+            all_labels.append(labels.numpy())
+
+    return np.concatenate(all_probs, axis=1), np.concatenate(all_labels)
+
+
+def main():
+    valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False, num_workers=2)
+    probs, labels = monte_carlo_dropout(valid_dataloader, num_samples=50, device=device)
+    print(probs.shape, labels.shape)  
+    mean_p = probs.mean(axis=0)            # (N, 2) averaged over the 50 passes
+    conf = mean_p.max(1)                   # predicted probability of the chosen class
+    correct = mean_p.argmax(1) == labels
+    print(f"Confidence: {conf.mean():.3f}  Accuracy: {correct.mean():.3f}  "
+      f"Gap: {abs(conf.mean() - correct.mean()):.3f}")
+    eps = 1e-12
+    n = len(labels)
+    nll = -np.log(mean_p[np.arange(n), labels] + eps).mean()      # log loss
+    brier = ((mean_p - np.eye(2)[labels]) ** 2).sum(1).mean()     # Brier score
+    entropy = -(mean_p * np.log(mean_p + eps)).sum(1)
+    auroc_err = roc_auc_score(~correct, entropy)                  # does uncertainty flag mistakes?
+
+    print(f"NLL: {nll:.4f}  Brier: {brier:.4f}  AUROC(entropy vs errors): {auroc_err:.3f}")
+    def transform_image(image):
+    # Min-max scaling to transform image tensor from -1 to 1 to 0 to 1
+        image_min = np.min(image)
+        image_max = np.max(image)
+        transformed_image = (image - image_min) / (image_max - image_min)
+        return transformed_image
+
+    image_index = 1
+    batch_index = 0
+
+    class_names = valid_dataset.classes
+    image = valid_dataset[image_index][0]  # Get the image tensor
+    true_label = class_names[valid_dataset[image_index][1]]  # Get the true label
+
+    # Convert the image tensor to a NumPy array and transpose the dimensions
+    image = np.transpose(image.numpy(), (1, 2, 0))
+
+    # Plot the image
+    plt.imshow(transform_image(image))
+    plt.axis('off')
+    plt.title('True Label: ' + true_label)
+    plt.show()
+
+if __name__ == '__main__':
+    main()
+
