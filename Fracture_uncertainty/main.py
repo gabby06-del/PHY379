@@ -10,16 +10,30 @@ import matplotlib.pyplot as pyplot
 from torchvision import models
 
 root = '/Users/alfredthebuttler/Desktop/PHY379/Fracture_uncertainty/Bone fracture dataset/Dataset'
-transform = transforms.Compose([
+train_transform = transforms.Compose([
     transforms.Grayscale(num_output_channels=3),
-    transforms.Resize((224, 224)),
+    transforms.RandomResizedCrop((224, 224), scale=(0.8, 1.0)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(degrees=15),  # Random rotations shift static text positions around
+    transforms.ToTensor(),
+    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    # RandomErasing places random black rectangles across the image.
+    # This teaches the network to classify the bone even if part of it (or the text) is covered.
+    transforms.RandomErasing(p=0.5, scale=(0.02, 0.15), ratio=(0.3, 3.3), value=0),
+])
+
+valid_transform = transforms.Compose([
+    transforms.Grayscale(num_output_channels=3),
+    transforms.Resize((240, 240)),
+    transforms.CenterCrop((224, 224)),  # Trims outer edges where letters commonly live
     transforms.ToTensor(),
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
 ])
 
-train_dataset = datasets.ImageFolder(os.path.join(root, 'Train '), transform=transform)
-valid_dataset = datasets.ImageFolder(os.path.join(root, 'Valid'), transform=transform)
+train_dataset = datasets.ImageFolder(os.path.join(root, 'Train '), transform=train_transform)
+valid_dataset = datasets.ImageFolder(os.path.join(root, 'Valid'), transform=valid_transform)
 num_classes = len(train_dataset.classes)
+
 if torch.cuda.is_available():
     device = torch.device('cuda')
 elif torch.backends.mps.is_available():
@@ -42,14 +56,15 @@ def main():
     nn.Linear(model.fc.in_features, num_classes),
     )
     model = model.to(device)
-    learning_rate = 0.001
+    learning_rate = 0.0001
     num_epochs = 15
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(weight=torch.tensor([0.53, 10.0]).to(device))
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     train_loss_list = []
     train_acc_list = []
     valid_loss_list = []
     valid_acc_list = []
+    best_val_loss = float('inf') 
     for epoch in range(num_epochs):
         model.train()
         running_loss = 0.0
@@ -101,12 +116,14 @@ def main():
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
               f"Training Loss: {train_loss:.4f}, Training Accuracy: {train_accuracy:.2f}%, "
               f"Validation Loss: {valid_loss:.4f}, Validation Accuracy: {valid_accuracy:.2f}%")
-
+        if valid_loss < best_val_loss:
+            best_val_loss = valid_loss
+            torch.save(model.state_dict(), 'resnet18_fracture.pt')
         train_loss_list.append(train_loss)
         train_acc_list.append(train_accuracy)
         valid_loss_list.append(valid_loss)
         valid_acc_list.append(valid_accuracy)
-        torch.save(model.state_dict(), 'resnet18_fracture.pt')
+       
 if __name__ == '__main__':
     main()
  
