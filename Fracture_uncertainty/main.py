@@ -52,19 +52,24 @@ def main():
     valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False, num_workers=2)
     model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
     model.fc = nn.Sequential(
-    nn.Dropout(0.5),
+    nn.Dropout(0.6),
     nn.Linear(model.fc.in_features, num_classes),
     )
+    #Heavier dropout to fix overitting issue and penalizing relying on text around X-ray image
     model = model.to(device)
     learning_rate = 0.0001
     num_epochs = 15
     criterion = nn.CrossEntropyLoss(weight=torch.tensor([0.53, 10.0]).to(device))
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
     train_loss_list = []
     train_acc_list = []
     valid_loss_list = []
     valid_acc_list = []
     best_val_loss = float('inf') 
+    #adding early stop criteria since overfitting is becoming an issue 
+    patience = 3               
+    patience_counter = 0   
+
     for epoch in range(num_epochs):
         model.train()
         running_loss = 0.0
@@ -116,9 +121,19 @@ def main():
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
               f"Training Loss: {train_loss:.4f}, Training Accuracy: {train_accuracy:.2f}%, "
               f"Validation Loss: {valid_loss:.4f}, Validation Accuracy: {valid_accuracy:.2f}%")
+        #added checkpoint logic for early stopping
         if valid_loss < best_val_loss:
             best_val_loss = valid_loss
             torch.save(model.state_dict(), 'resnet18_fracture.pt')
+            print(f" => Validation loss decreased. Saving model checkpoint...")
+            patience_counter = 0  
+        else:
+            patience_counter += 1
+            print(f" => No validation improvement. Early stopping counter: {patience_counter}/{patience}")
+            
+        if patience_counter >= patience:
+            print(f"Early stopping triggered => Training stopped at epoch {epoch + 1}.")
+            break
         train_loss_list.append(train_loss)
         train_acc_list.append(train_accuracy)
         valid_loss_list.append(valid_loss)
