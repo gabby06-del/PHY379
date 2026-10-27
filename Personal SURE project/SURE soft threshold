@@ -28,7 +28,7 @@ def sure(y_observed, tau, sig):
     return sure_val
 
 
-tau_grid = np.linspace(0.0, np.max(np.abs(y_observed)), 1000) 
+tau_grid = np.linspace(0.0, np.max(np.abs(y_observed)), 100) 
 sure_loss = [] 
 MSE_loss = []  
 
