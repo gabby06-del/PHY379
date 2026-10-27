@@ -65,10 +65,10 @@ def main():
     train_acc_list = []
     valid_loss_list = []
     valid_acc_list = []
-    
+
     best_val_loss = float('inf') 
     #adding early stop criteria since overfitting is becoming an issue 
-    patience = 3               
+    patience = 5               
     patience_counter = 0   
 
     for epoch in range(num_epochs):
