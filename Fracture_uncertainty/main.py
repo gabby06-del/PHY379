@@ -51,6 +51,13 @@ def main():
     train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=2)
     valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False, num_workers=2)
     model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+    #freezing early layers and only train the final classification head.
+
+    for param in model.parameters():
+        param.requires_grad = False
+#unfreezes layer 4
+    for param in model.layer4.parameters():
+        param.requires_grad = True
     model.fc = nn.Sequential(
     nn.Dropout(0.6),
     nn.Linear(model.fc.in_features, num_classes),
@@ -61,6 +68,9 @@ def main():
     num_epochs = 15
     criterion = nn.CrossEntropyLoss(weight=torch.tensor([0.53, 10.0]).to(device))
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+    #adding a scheduler to cut learning rate in half validation progress stalls
+
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2, factor=0.5)
     train_loss_list = []
     train_acc_list = []
     valid_loss_list = []
@@ -122,6 +132,7 @@ def main():
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
               f"Training Loss: {train_loss:.4f}, Training Accuracy: {train_accuracy:.2f}%, "
               f"Validation Loss: {valid_loss:.4f}, Validation Accuracy: {valid_accuracy:.2f}%")
+        scheduler.step(valid_loss)
         #added checkpoint logic for early stopping
         if valid_loss < best_val_loss:
             best_val_loss = valid_loss
