@@ -43,25 +43,8 @@ class SUREDenoise:
     def __call__(self, img):
         arr = np.asarray(img.convert('L'), dtype=np.float64) / 255.0
         x_hat, _, _ = sure_denoise_array(arr)
-        return Image.fromarray(np.rint(np.clip(x_hat, 0, 1) * 255).astype(np.uint8), mode='L')
+        return Image.fromarray(np.rint(np.clip(x_hat, 0, 1) * 255).astype(np.uint8))
  
- 
-class MarkerMask:
-    """
-    Blank out fixed rectangles, given as fractions of the image: (x0, y0, x1, y1).
-    where the L/R and WB markers sit in the X-rays.
-    """
- 
-    def __init__(self, boxes):
-        self.boxes = boxes
- 
-    def __call__(self, img):
-        arr = np.array(img.convert('L'))
-        h, w = arr.shape
-        fill = int(arr.mean())
-        for x0, y0, x1, y1 in self.boxes:
-            arr[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)] = fill
-        return Image.fromarray(arr, mode='L')
  
  
 if __name__ == '__main__':
@@ -71,5 +54,5 @@ if __name__ == '__main__':
         kept = np.mean(np.abs(dctn(arr, norm='ortho')) > tau)
         print(f"{path}\n  size={arr.shape}  sigma_hat={sigma:.5f}  tau={tau:.5f}  "
               f"kept {100 * kept:.1f}% of coefficients  "
-              f"mean change={255 * np.mean(np.abs(x_hat - arr)):.3f} gray levels")
+              f"mean change={255 * np.mean(np.abs(x_hat - arr)):.3f} gray levels", mode='L')
  

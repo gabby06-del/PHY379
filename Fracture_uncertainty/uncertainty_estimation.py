@@ -9,34 +9,30 @@ from sure_denoise import SUREDenoise
 
 np.random.seed(1000)
 torch.manual_seed(1000)
- 
-root = '/Users/alfredthebuttler/Desktop/PHY379/Fracture_uncertainty/Bone fracture dataset/Dataset'
+"""changed dataset to not include x-ray's with hardware"""
+"""dataset used is shown in GitHub along with citations"""
+root = '/Users/alfredthebuttler/Desktop/PHY379/Fracture_uncertainty/Bone fracture dataset/Bone Fracture'
 weights_path = '/Users/alfredthebuttler/Desktop/PHY379/Fracture_uncertainty/resnet18_fracture.pt'  # same file for training and inference
-DROPOUT = 0.6  
+dropout = 0.5 
  
-# SUREDenoise estimates the noise level of each X-ray and picks the DCT soft-threshold that minimizes SURE (see sure_denoise.py)
+""" SUREDenoise estimates the noise level of each X-ray and picks the DCT soft-threshold that minimizes SURE (see sure_denoise.py)"""
 train_transform = transforms.Compose([
     SUREDenoise(),
+    transforms.Resize((224, 224)),
     transforms.Grayscale(num_output_channels=3),
-    transforms.RandomResizedCrop((224, 224), scale=(0.8, 1.0)),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomRotation(degrees=15),  # Random rotations shift static text positions around
-    #instead of blocking out entire portions of the image, changed overall brightness and contrast
-    transforms.ColorJitter(brightness=0.2, contrast=0.2),
     transforms.ToTensor(),
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
 ])
  
 valid_transform = transforms.Compose([
-    SUREDenoise(),                      
+    SUREDenoise(),   
+    transforms.Resize((224, 224)),                   
     transforms.Grayscale(num_output_channels=3),
-    transforms.Resize((240, 240)),
-    transforms.CenterCrop((224, 224)),  # Trims outer edges where letters commonly live
     transforms.ToTensor(),
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
 ])
  
-train_dataset = datasets.ImageFolder(os.path.join(root, 'Train '), transform=train_transform)
+train_dataset = datasets.ImageFolder(os.path.join(root, 'Train'), transform=train_transform)
 valid_dataset = datasets.ImageFolder(os.path.join(root, 'Valid'), transform=valid_transform)
 num_classes = len(train_dataset.classes)
  
@@ -48,34 +44,26 @@ else:
     device = torch.device('cpu')
  
  
-def build_model(pretrained):
-    model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT if pretrained else None)
-    #freezing early layers and only train the final classification head.
-    for param in model.parameters():
-        param.requires_grad = False
-    #unfreezes layer 4
-    for param in model.layer4.parameters():
-        param.requires_grad = True
+def build_model(pretrained=False):
+    model = models.resnet18(weights=None)
+    #    local_weights = torch.load(
+    #   "/path/to/resnet18-f37072fd.pth",
+    #    map_location="cpu",
+     #   weights_only=True
+    #)
+    #model.load_state_dict(local_weights)
     model.fc = nn.Sequential(
-        nn.Dropout(DROPOUT),
+        nn.Dropout(dropout),
         nn.Linear(model.fc.in_features, num_classes),
     )
-    #Heavier dropout to fix overitting issue and penalizing relying on text around X-ray image
+
     return model
- 
- 
-def load_model(path, device):
-    """Same architecture as training (including the dropout rate), with the saved weights."""
-    model = build_model(pretrained=False)
-    model.load_state_dict(torch.load(path, map_location=device))
-    return model.to(device)
- 
- 
+
+
 def set_train_mode(model):
     """Train mode, but the frozen layers keep their batch-norm statistics fixed."""
     model.train()
-    for m in (model.bn1, model.layer1, model.layer2, model.layer3):
-        m.eval()
+    
  
  
 def main():
@@ -83,20 +71,20 @@ def main():
     print(valid_dataset.class_to_idx)
     print(len(train_dataset), len(valid_dataset), 'device:', device)
  
-    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=2)
-    valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False, num_workers=2)
-    model = build_model(pretrained=True)
+
+    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=0)
+    valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False, num_workers=0)
+    
+    model = build_model(pretrained=False) # Turned off online downloading
     model = model.to(device)
+ 
     learning_rate = 0.0001
     num_epochs = 15
  
-    # class weights from the training counts: 0.53 for fracture, about 8.35 for normal
-    counts = np.bincount(train_dataset.targets, minlength=num_classes)
-    class_weights = torch.tensor(counts.sum() / (num_classes * counts), dtype=torch.float32).to(device)
-    print('class counts:', counts.tolist(), ' loss weights:', [round(float(w), 2) for w in class_weights])
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
+   
+    criterion = nn.CrossEntropyLoss()  
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
-    #adding a scheduler to cut learning rate in half validation progress stalls
+    """adding a scheduler to cut learning rate in half validation progress stalls"""
  
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2, factor=0.5)
     train_loss_list = []
@@ -104,10 +92,10 @@ def main():
     valid_loss_list = []
     valid_acc_list = []
  
-    best_balanced_acc = 0.0
-    #adding early stop criteria since overfitting is becoming an issue
-    patience = 5
+    best_val_loss = float('inf')
+    early_stop_patience = 5
     patience_counter = 0
+
  
     for epoch in range(num_epochs):
         set_train_mode(model)
@@ -165,28 +153,34 @@ def main():
         recalls = class_correct / np.maximum(class_total, 1)
         balanced_acc = float(recalls.mean())
  
+       
+        recall_strings = [f"{train_dataset.classes[idx]}: {recalls[idx]:.3f}" for idx in range(num_classes)]
+        recall_log = ", ".join(recall_strings)
+ 
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
               f"Training Loss: {train_loss:.4f}, Training Accuracy: {train_accuracy:.2f}%, "
               f"Validation Loss: {valid_loss:.4f}, Validation Accuracy: {valid_accuracy:.2f}%, "
-              f"Recall fracture/normal: {recalls[0]:.3f}/{recalls[1]:.3f}, Balanced acc: {balanced_acc:.3f}")
+              f"Recalls -> {recall_log}, Balanced acc: {balanced_acc:.3f}")
+        
         scheduler.step(valid_loss)
-        #added checkpoint logic for early stopping
+        """added checkpoint logic for early stopping"""
  
         train_loss_list.append(train_loss)
         train_acc_list.append(train_accuracy)
         valid_loss_list.append(valid_loss)
         valid_acc_list.append(valid_accuracy)
         # checkpoint on balanced accuracy: with a weighted loss, raw accuracy would favour the epoch that ignores "normal"
-        if balanced_acc > best_balanced_acc:
-            best_balanced_acc = balanced_acc
+        
+        if valid_loss < best_val_loss:
+            best_val_loss = valid_loss
             torch.save(model.state_dict(), weights_path)
-            print(f" => Balanced accuracy improved ({best_balanced_acc:.3f}). Saving model checkpoint...")
+            print(f" => Validation loss decreased ({best_val_loss:.4f}). Saving model checkpoint...")
             patience_counter = 0
         else:
             patience_counter += 1
-            print(f" => No balanced accuracy improvement. Early stopping counter: {patience_counter}/{patience}")
+            print(f" => No validation loss improvement. Early stopping counter: {patience_counter}/{early_stop_patience}")
  
-        if patience_counter >= patience:
+        if patience_counter >= early_stop_patience:
             print(f"Early stopping triggered => Training stopped at epoch {epoch + 1}.")
             break
  
