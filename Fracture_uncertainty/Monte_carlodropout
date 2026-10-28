@@ -1,100 +1,137 @@
 import os
+import sys
 import numpy as np
 import torch
 import torch.nn as nn
-from torchvision import models, datasets, transforms
-from torch.utils.data import DataLoader
-from sklearn.metrics import roc_auc_score
 import matplotlib.pyplot as plt
-if torch.cuda.is_available():
-    device = torch.device('cuda')
-elif torch.backends.mps.is_available():
-    device = torch.device('mps')
-else:
-    device = torch.device('cpu')
-
-root = '/Users/alfredthebuttler/Desktop/PHY379/Fracture_uncertainty/Bone fracture dataset/Dataset'
-weights_path = '/Users/alfredthebuttler/Desktop/PHY379/Fracture_uncertainty/resnet18_fracture.pt'
-
-transform = transforms.Compose([
-    transforms.Grayscale(num_output_channels=3),
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),   # must match training
-])
-valid_dataset = datasets.ImageFolder(os.path.join(root, 'Valid'), transform=transform)
-
-
-def monte_carlo_dropout(dataloader, num_samples, device):
-    model = models.resnet18(weights=None)
-    model.fc = nn.Sequential(nn.Dropout(0.5), nn.Linear(model.fc.in_features, 2))
-    model.load_state_dict(torch.load(weights_path, map_location=device))
-    model = model.to(device)
-
-    model.eval()
+from torch.utils.data import DataLoader
+from torchvision import datasets
+from sklearn.metrics import roc_auc_score
+ 
+# Everything that must match training (transforms, dropout rate, architecture, weights path) is imported from it
+from uncertainty_estimation import valid_transform, load_model, device, root, weights_path
+ 
+def monte_carlo_dropout(model, dataloader, num_samples):
+    model.eval()                                   # batch norm in eval mode
     for m in model.modules():
         if isinstance(m, nn.Dropout):
-            m.train()
-
-    backbone = nn.Sequential(*list(model.children())[:-1])
-    head = model.fc
-
+            m.train()                              # only dropout stays random
+ 
+    backbone = nn.Sequential(*list(model.children())[:-1])   # everything except fc
+    head = model.fc                                           # Dropout + Linear
+ 
     all_probs, all_labels = [], []
     with torch.no_grad():
         for images, labels in dataloader:
-            feats = torch.flatten(backbone(images.to(device)), 1)
+            feats = torch.flatten(backbone(images.to(device)), 1)       # computed once
             probs = torch.stack([head(feats).softmax(dim=-1) for _ in range(num_samples)])
             all_probs.append(probs.cpu().numpy())
             all_labels.append(labels.numpy())
-
-    return np.concatenate(all_probs, axis=1), np.concatenate(all_labels)
-
-
+ 
+    return np.concatenate(all_probs, axis=1), np.concatenate(all_labels)   # (S, N, C), (N,)
+ 
+ 
+def to_display(img_tensor):
+    """Normalized tensor (3, H, W) -> RGB array in [0, 1] for imshow (undoes the -1..1 scaling)."""
+    img = np.transpose(img_tensor.numpy(), (1, 2, 0))
+    return (img - img.min()) / (img.max() - img.min() + 1e-12)
+ 
+ 
+def pick_examples(mean_p, labels, entropy):
+    """Automatically choose a few informative validation images."""
+    pred = mean_p.argmax(1)
+    conf = mean_p.max(1)
+    correct = pred == labels
+    picks = []
+ 
+    def best(mask, score, title):
+        idx = np.where(mask)[0]
+        if len(idx):
+            picks.append((int(idx[np.argmax(score[idx])]), title))
+ 
+    best(correct & (labels == 0), conf, 'Confident, correct (fracture)')
+    best(correct & (labels == 1), conf, 'Confident, correct (normal)')
+    best(np.ones(len(labels), dtype=bool), entropy, 'Most uncertain')
+    best(~correct, conf, 'Confidently wrong')
+    return picks
+ 
+ 
+def show_examples(probs, labels, dataset, picks, class_names, save_path):
+    """Top row: the image the model sees. Bottom row: P(class 0) across all the dropout passes."""
+    n = len(picks)
+    fig, axes = plt.subplots(2, n, figsize=(4.2 * n, 7.2), squeeze=False)
+    for j, (i, title) in enumerate(picks):
+        p = probs[:, i, 0]                              # probability of class 0 in every pass
+        mean_p = probs[:, i, :].mean(axis=0)
+        pred = int(mean_p.argmax())
+ 
+        ax = axes[0, j]
+        ax.imshow(to_display(dataset[i][0]))
+        ax.axis('off')
+        ax.set_title(f"{title}\nimage {i}   True: {class_names[labels[i]]}\n"
+                     f"Predicted: {class_names[pred]} ({mean_p[pred]:.2f})", fontsize=9)
+ 
+        ax = axes[1, j]
+        ax.hist(p, bins=np.linspace(0, 1, 21), edgecolor='k')
+        ax.set_xlim(0, 1)
+        ax.set_xlabel(f"P({class_names[0]}) in each of {len(p)} dropout passes")
+        ax.set_ylabel('number of passes')
+        ax.set_title(f"mean {p.mean():.3f}, std {p.std():.3f}", fontsize=9)
+ 
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    print('Saved figure to', save_path)
+    plt.show()
+ 
+ 
 def main():
+    valid_dataset = datasets.ImageFolder(os.path.join(root, 'Valid'), transform=valid_transform)
     valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False, num_workers=2)
-    probs, labels = monte_carlo_dropout(valid_dataloader, num_samples=50, device=device)
-    print(probs.shape, labels.shape)  
-    mean_p = probs.mean(axis=0)            # (N, 2) averaged over the 50 passes
-    conf = mean_p.max(1)                   # predicted probability of the chosen class
-    correct = mean_p.argmax(1) == labels
-    print(f"Confidence: {conf.mean():.3f}  Accuracy: {correct.mean():.3f}  "
-      f"Gap: {abs(conf.mean() - correct.mean()):.3f}")
+ 
+    model = load_model(weights_path, device)
+    probs, labels = monte_carlo_dropout(model, valid_dataloader, num_samples=50)
+    print(probs.shape, labels.shape)
+ 
     eps = 1e-12
     n = len(labels)
-    nll = -np.log(mean_p[np.arange(n), labels] + eps).mean()      # log loss
-    brier = ((mean_p - np.eye(2)[labels]) ** 2).sum(1).mean()     # Brier score
-    entropy = -(mean_p * np.log(mean_p + eps)).sum(1)
-    auroc_err = roc_auc_score(~correct, entropy)                  # does uncertainty flag mistakes?
-
-    print(f"NLL: {nll:.4f}  Brier: {brier:.4f}  AUROC(entropy vs errors): {auroc_err:.3f}")
-    def transform_image(image):
-    # Min-max scaling to transform image tensor from -1 to 1 to 0 to 1
-        image_min = np.min(image)
-        image_max = np.max(image)
-        transformed_image = (image - image_min) / (image_max - image_min)
-        return transformed_image
-
-    image_index = 1
-    batch_index = 0
-
-    class_names = valid_dataset.classes
-    image = valid_dataset[image_index][0]  # Get the image tensor
-    true_label = class_names[valid_dataset[image_index][1]]  # Get the true label
-
-    # Convert the image tensor to a NumPy array and transpose the dimensions
-    image = np.transpose(image.numpy(), (1, 2, 0))
-
-    # Plot the image
-    plt.imshow(transform_image(image))
-    plt.axis('off')
-    plt.title('True Label: ' + true_label)
-    plt.show()
+    num_classes = probs.shape[2]
+    mean_p = probs.mean(axis=0)                    # (N, C)
     pred = mean_p.argmax(1)
-    print("fracture recall:", (pred[labels == 0] == 0).mean(),
-      " normal recall:", (pred[labels == 1] == 1).mean())
-    print("confidence when wrong:", conf[~correct].mean(),
-      " when right:", conf[correct].mean())
-
+    conf = mean_p.max(1)
+    correct = pred == labels
+ 
+    print(f"Confidence: {conf.mean():.3f}  Accuracy: {correct.mean():.3f}  "
+          f"Gap: {abs(conf.mean() - correct.mean()):.3f}")
+ 
+    recalls = [(pred[labels == c] == c).mean() for c in range(num_classes)]
+    print(f"Recall  fracture: {recalls[0]:.3f}   normal: {recalls[1]:.3f}   balanced: {np.mean(recalls):.3f}")
+    if (~correct).any():
+        print(f"Confidence when wrong: {conf[~correct].mean():.3f}   when right: {conf[correct].mean():.3f}")
+ 
+    nll = -np.log(mean_p[np.arange(n), labels] + eps).mean()
+    brier = ((mean_p - np.eye(num_classes)[labels]) ** 2).sum(1).mean()
+    entropy = -(mean_p * np.log(mean_p + eps)).sum(1)
+    print(f"NLL: {nll:.4f}  Brier: {brier:.4f}")
+ 
+    # What a model that ignores the image and always outputs the class frequencies would score
+    prior = np.bincount(labels, minlength=num_classes) / n
+    print(f"Baseline (always the class frequencies):  accuracy {prior.max():.3f}  "
+          f"NLL {-(prior * np.log(prior)).sum():.4f}  "
+          f"Brier {sum(prior[y] * ((prior - np.eye(num_classes)[y]) ** 2).sum() for y in range(num_classes)):.4f}")
+ 
+    if correct.any() and (~correct).any():
+        print(f"AUROC (entropy vs errors): {roc_auc_score(~correct, entropy):.3f}")
+ 
+    # ---- images with their uncertainty ----
+    class_names = [c.split('_')[-1] for c in valid_dataset.classes]        # 'Valid_fracture' -> 'fracture'
+    picks = pick_examples(mean_p, labels, entropy)
+    # to look at specific images, pass their index numbers:  python Monte_carlodropout.py 17 230
+    picks += [(int(a), f'Image {a}') for a in sys.argv[1:]]
+    for i, title in picks:
+        print(f"{title}: image {i}  file {valid_dataset.samples[i][0]}")
+    save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mc_dropout_examples.png')
+    show_examples(probs, labels, valid_dataset, picks, class_names, save_path)
+ 
+ 
 if __name__ == '__main__':
     main()
-
